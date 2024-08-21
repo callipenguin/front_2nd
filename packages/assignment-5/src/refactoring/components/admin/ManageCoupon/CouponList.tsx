@@ -3,7 +3,7 @@
 import type { Coupon } from "types";
 
 interface CouponListProps {
-  coupons: Coupon[]
+  coupons: Coupon[];
 }
 
 const CouponList = ({ coupons }: CouponListProps) => {
