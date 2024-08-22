@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Box,
   Button,
@@ -86,16 +86,46 @@ const fetchMajors = () => axios.get<Lecture[]>("/schedules-majors.json");
 const fetchLiberalArts = () =>
   axios.get<Lecture[]>("/schedules-liberal-arts.json");
 
-// TODO: 이 코드를 개선해서 API 호출을 최소화 해보세요 + Promise.all이 현재 잘못 사용되고 있습니다. 같이 개선해주세요.
-const fetchAllLectures = async () =>
-  await Promise.all([
-    (console.log("API Call 1", performance.now()), await fetchMajors()),
-    (console.log("API Call 2", performance.now()), await fetchLiberalArts()),
-    (console.log("API Call 3", performance.now()), await fetchMajors()),
-    (console.log("API Call 4", performance.now()), await fetchLiberalArts()),
-    (console.log("API Call 5", performance.now()), await fetchMajors()),
-    (console.log("API Call 6", performance.now()), await fetchLiberalArts()),
-  ]);
+// 현재 문제점
+// 1. fetchMajors와 fetchLiberalArts 함수가 여러 번 호출되고 있음 -> 중복 호출을 방지해야 함
+// 2. fetchMajors와 fetchLiberalArts 함수가 순차적으로 호출되고 있음 -> 병렬로 호출해야 함
+
+// 함수와 key를 받아서 캐시하거나 캐싱된 값을 반환
+function createCachedFunction<T>(calledFunction: () => T): () => T {
+  let hasResult = false;
+  let cachedResult: T;
+
+  return () => {
+    if (hasResult) {
+      console.log(cachedResult, "cachedResult - already");
+      return cachedResult;
+    } else {
+      const result = calledFunction();
+      hasResult = true;
+      cachedResult = result;
+      console.log(calledFunction.name, performance.now(), "호출 되었어요");
+      console.log(cachedResult, "cachedResult");
+      return result;
+    }
+  };
+}
+
+// 모든 강의를 불러오는 함수
+const fetchAllLectures = async () => {
+  const cachedFetchMajors = createCachedFunction(fetchMajors);
+  const cachedFetchLiberalArts = createCachedFunction(fetchLiberalArts);
+
+  const promiseList = [
+    cachedFetchMajors(),
+    cachedFetchLiberalArts(),
+    cachedFetchMajors(),
+    cachedFetchLiberalArts(),
+    cachedFetchMajors(),
+    cachedFetchLiberalArts(),
+  ];
+
+  return Promise.all(promiseList);
+};
 
 // TODO: 이 컴포넌트에서 불필요한 연산이 발생하지 않도록 다양한 방식으로 시도해주세요.
 const SearchDialog = ({ searchInfo, onClose }: Props) => {
@@ -113,7 +143,7 @@ const SearchDialog = ({ searchInfo, onClose }: Props) => {
     majors: [],
   });
 
-  const getFilteredLectures = () => {
+  const getFilteredLectures = useMemo(() => {
     const { query = "", credits, grades, days, times, majors } = searchOptions;
     return lectures
       .filter(
@@ -150,9 +180,10 @@ const SearchDialog = ({ searchInfo, onClose }: Props) => {
           s.range.some((time) => times.includes(time)),
         );
       });
-  };
+  }, [searchOptions]);
 
-  const filteredLectures = getFilteredLectures();
+  const filteredLectures = getFilteredLectures;
+
   const lastPage = Math.ceil(filteredLectures.length / PAGE_SIZE);
   const visibleLectures = filteredLectures.slice(0, page * PAGE_SIZE);
   const allMajors = [...new Set(lectures.map((lecture) => lecture.major))];
@@ -193,6 +224,7 @@ const SearchDialog = ({ searchInfo, onClose }: Props) => {
       console.log("API 호출에 걸린 시간(ms): ", end - start);
       setLectures(results.flatMap((result) => result.data));
     });
+    return () => {};
   }, []);
 
   useEffect(() => {
